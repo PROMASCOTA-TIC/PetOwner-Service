@@ -1,0 +1,17 @@
+{
+  "name": "shopping-cart-ms-e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "implicitDependencies": ["shopping-cart-ms"],
+  "targets": {
+    "e2e": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{e2eProjectRoot}"],
+      "options": {
+        "jestConfig": "apps/shopping-cart-ms-e2e/jest.config.ts",
+        "passWithNoTests": true
+      },
+      "dependsOn": ["shopping-cart-ms:build"]
+    }
+  }
+}
