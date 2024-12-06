@@ -35,7 +35,13 @@
       "options": {
         "targetName": "test"
       },
-      "exclude": ["apps/shopping-cart-ms-e2e/**/*"]
+      "exclude": [
+        "apps/shopping-cart-ms-e2e/**/*",
+        "apps/orders-ms-e2e/**/*",
+        "apps/addresses-ms-e2e/**/*",
+        "apps/pets-ms-e2e/**/*",
+        "apps/payments-ms-e2e/**/*"
+      ]
     }
   ]
 }
