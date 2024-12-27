@@ -10,7 +10,7 @@ export class PetsService {
   constructor(
     @InjectModel(Pet)
     private pet: typeof Pet,
-  ){}
+  ) { }
   private readonly logger = new Logger(PetsService.name);
 
   async onModuleInit() {
@@ -23,15 +23,13 @@ export class PetsService {
   }
 
   async create(createPetDto: CreatePetDto) {
-    const { medicalHistory, photosUrls, ...rest } = createPetDto;
-    try{
+    try {      
       const newPet = {
         id: Uuidv4(),
-        medicalHistory: medicalHistory.join(', '),
-        photosUrls: photosUrls.join(', '),
-        ...rest
+        medicalHistory: createPetDto.medicalHistory.length > 0 ? createPetDto.medicalHistory.join(', ') : createPetDto.medicalHistory,
+        photoUrl: createPetDto.photoUrl,
+        ...createPetDto
       }
-      console.log(newPet);
       await this.pet.create(newPet);
       return { message: 'Pet created successfully' };
     } catch (error) {
@@ -57,7 +55,7 @@ export class PetsService {
   }
 
   async update(id: string, updatePetDto: UpdatePetDto) {
-    const { id:_, ...rest } = updatePetDto;
+    const { id: _, ...rest } = updatePetDto;
     await this.findOne(id);
     return await this.pet.update(rest, { where: { id } }).catch(error => {
       this.logger.error('Error updating pet:', error.message);

@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsArray, IsDateString, IsNumber, IsString, Min } from "class-validator";
+import { IsArray, IsDateString, IsNumber, IsOptional, IsString, Min } from "class-validator";
 
 export class CreatePetDto {
     
@@ -30,11 +30,12 @@ export class CreatePetDto {
 
     @IsArray()
     @IsString({ each: true })
-    medicalHistory: string[];
+    @IsOptional()
+    medicalHistory?: string[];
 
     @IsArray()
     @IsString({ each: true })
-    photosUrls: string[];
+    photoUrl?: string;
 
     @IsString()
     ownerId: string;
