@@ -156,7 +156,7 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  async updatePaymentStatus(userId: string, id: string) {
+  async updatePaymentStatus(userId: string, id: string, paymentComment: string) {
     try {
       // Buscar y actualizar el estado de pago de la orden
       const order = await this.findOneUserOrder(userId, id);
@@ -180,6 +180,7 @@ export class OrdersService implements OnModuleInit {
         status: 1,
         paidAt,
         updatedAt,
+        paymentComment,
       });
 
       return {
@@ -329,6 +330,23 @@ export class OrdersService implements OnModuleInit {
         success: false,
         message: "No se puedo hacer el envio de la orden",
         // error: error.message
+      });
+    }
+  }
+
+  async findOrderItemsByEntrepreneur(entrepreneurId: string) {
+    try {
+      // Buscar todos los items de una orden de un emprendedor
+      return this.orderItemModel.findAll({
+        where: { entrepreneurId },
+        // include: [this.orderModel]
+      });
+    } catch (error) {
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        success: false,
+        message: "No se lograron encontrar items del emprendedor",
+        // error: error.message,
       });
     }
   }

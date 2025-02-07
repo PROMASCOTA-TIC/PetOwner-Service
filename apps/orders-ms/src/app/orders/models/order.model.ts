@@ -68,6 +68,13 @@ export class Order extends Model {
     })
     paidAt?: Date;
 
+    @Column({
+        type: DataType.STRING,
+        allowNull: true,
+        field: 'PAYMENT_COMMENT',
+    })
+    paymentComment: string;
+
     // Cuando sea true se debe consultar la BD para obtener el valor del envio y sumarlo al totalAmount o algo asi :v
     @Column({
         type: DataType.BOOLEAN,

@@ -23,9 +23,9 @@ export class OrdersController {
   }
 
   @MessagePattern('order_paid')
-  async orderPaid(@Payload() payload: { userId: string; id: string }) {
-    const { userId, id } = payload;
-    return this.ordersService.updatePaymentStatus(userId, id);
+  async orderPaid(@Payload() payload: { userId: string; id: string, paymentComment: string }) {
+    const { userId, id, paymentComment } = payload;
+    return this.ordersService.updatePaymentStatus(userId, id, paymentComment);
   }
 
   @MessagePattern('get_one_user_order')
@@ -38,5 +38,10 @@ export class OrdersController {
   async confirmDeliverItem(@Payload() payload: { userId: string; id: string, orderItemId: string }) {
     const { userId, id, orderItemId } = payload;
     return this.ordersService.handleDeliveredItemStatus(userId, id, orderItemId);
+  }
+
+  @MessagePattern('get_items_by_entrepreneur')
+  async getItemsByEntrepreneur(@Payload('entrepreneurId') entrepreneurId: string) {
+    return this.ordersService.findOrderItemsByEntrepreneur(entrepreneurId);
   }
 }
