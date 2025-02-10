@@ -5,10 +5,12 @@ import { envs } from '../config';
 import { Dialect } from 'sequelize';
 import { Order } from './orders/models/order.model';
 import { OrderItem } from './orders/models/order-item.model';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
     OrdersModule,
+    ScheduleModule.forRoot(),
     SequelizeModule.forRoot({
       dialect: envs.dbDialect as Dialect,
       logging: console.log,

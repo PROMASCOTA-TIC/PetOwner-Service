@@ -54,6 +54,13 @@ export class Order extends Model {
     isActive: boolean;
 
     @Column({
+        type: DataType.STRING,
+        allowNull: false,
+        field: 'PAYMENT_METHOD',
+    })
+    paymentMethod: string;
+
+    @Column({
         type: DataType.BOOLEAN,
         allowNull: false,
         field: 'IS_PAID',

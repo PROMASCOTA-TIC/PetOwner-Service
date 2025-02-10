@@ -6,7 +6,9 @@ import { RpcException } from '@nestjs/microservices';
 import { v4 as UuidV4 } from 'uuid';
 import { HttpService } from '../../config';
 import { OrderItem } from './models/order-item.model';
-import { Sequelize } from 'sequelize-typescript';
+import { Sequelize, UpdatedAt } from 'sequelize-typescript';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { Op } from 'sequelize';
 
 @Injectable()
 export class OrdersService implements OnModuleInit {
@@ -64,7 +66,8 @@ export class OrdersService implements OnModuleInit {
           totalAmount: totalAmount,
           totalItems: totalItems,
           homeDelivery: createOrderDto.homeDelivery,
-          petOwnerPhone: createOrderDto.petOwnerPhone,
+          // petOwnerPhone: createOrderDto.petOwnerPhone, // TODO: Obtener desde una consulta al ms
+          paymentMethod: createOrderDto.paymentMethod,
         },
         { transaction }
       );
@@ -144,7 +147,7 @@ export class OrdersService implements OnModuleInit {
         where: { id: id, userId, isActive: 1 },
         include: [this.orderItemModel]
       });
-  
+
       return order;
     } catch (error) {
       throw new RpcException({
@@ -169,24 +172,51 @@ export class OrdersService implements OnModuleInit {
         })
       }
 
-      const paidAt = new Date();
-      paidAt.setHours(paidAt.getHours() - 5);
+      const { data } = await HttpService.get(`payments/${order.id}`);
 
-      const updatedAt = new Date();
-      updatedAt.setHours(updatedAt.getHours() - 5);
+      if (data.status === 'P') {
+        throw new RpcException({
+          status: HttpStatus.BAD_REQUEST,
+          success: false,
+          message: 'La orden aun no ha sido pagada',
+        })
+      } else {
+        if (data.status === 'A') {
+          const paidAt = new Date();
+          paidAt.setHours(paidAt.getHours() - 5);
 
-      await order.update({
-        isPaid: true,
-        status: 1,
-        paidAt,
-        updatedAt,
-        paymentComment,
-      });
+          const updatedAt = new Date();
+          updatedAt.setHours(updatedAt.getHours() - 5);
 
-      return {
-        success: true,
-        message: "El pago de la orden se ha procesdo exitosamente."
-      };
+          await order.update({
+            isPaid: true,
+            status: 1,
+            paidAt,
+            updatedAt,
+            paymentComment,
+          });
+
+          return {
+            success: true,
+            message: "El pago de la orden se ha procesdo exitosamente."
+          };
+
+        } else if (data.status === 'R') {
+          const updatedAt = new Date();
+          updatedAt.setHours(updatedAt.getHours() - 5);
+
+          await order.update({
+            updatedAt,
+            paymentComment,
+          });
+
+          return {
+            success: true,
+            message: "El pago de la orden ha sido rechazado."
+          };
+        }
+      }
+
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
@@ -219,7 +249,7 @@ export class OrdersService implements OnModuleInit {
         })
       }
 
-      if ( order.homeDelivery ) {
+      if (order.homeDelivery) {
         if (orderItem.status === 1) {
           throw new RpcException({
             status: HttpStatus.BAD_REQUEST,
@@ -227,16 +257,16 @@ export class OrdersService implements OnModuleInit {
             message: 'El item ya ha sido entregado',
           })
         }
-  
-        if ( order.homeDelivery && order.status === 0) {
+
+        if (order.homeDelivery && order.status === 0) {
           const updatedAt = new Date();
           updatedAt.setHours(updatedAt.getHours() - 5);
-    
+
           await orderItem.update({
             status: 1,
             updatedAt,
           });
-    
+
           return {
             success: true,
             message: "El item ha sido entregado exitosamente."
@@ -256,16 +286,16 @@ export class OrdersService implements OnModuleInit {
             message: 'El item ya ha sido recogido',
           })
         }
-  
-        if (!order.homeDelivery && orderItem.status === 0) {
+
+        if (!order.homeDelivery && order.status === 1) {
           const updatedAt = new Date();
           updatedAt.setHours(updatedAt.getHours() - 5);
-    
+
           await orderItem.update({
             status: 2,
             updatedAt,
           });
-    
+
           return {
             success: true,
             message: "El item ha sido recogido exitosamente."
@@ -278,8 +308,6 @@ export class OrdersService implements OnModuleInit {
           })
         }
       }
-
-
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
@@ -337,13 +365,21 @@ export class OrdersService implements OnModuleInit {
   async findOrderItemsByEntrepreneur(entrepreneurId: string) {
     try {
       // Buscar todos los items de una orden de un emprendedor
-      return this.orderItemModel.findAll({
-        where: { entrepreneurId },
-        // include: [this.orderModel]
+      const orderItems = await this.orderItemModel.findAll({
+        where: { entrepreneurId, status: { [Op.or]: [1, 2] } },
+        include: [this.orderModel]
       });
+
+      // Filtrar items cuya orden cumpla con las condiciones
+      const filteredOrderItems = orderItems.filter(orderItem => {
+        const order = orderItem.order;
+        return order.isActive && order.isPaid && order.status === 4;
+      });
+
+      return filteredOrderItems;
     } catch (error) {
       throw new RpcException({
-        status: HttpStatus.BAD_REQUEST,
+        status: HttpStatus.NOT_FOUND,
         success: false,
         message: "No se lograron encontrar items del emprendedor",
         // error: error.message,
@@ -354,6 +390,39 @@ export class OrdersService implements OnModuleInit {
   // METODOS DE APOYO
   isReadyToShip(order: Order) {
     return order.isActive && order.homeDelivery && order.status === 1 && order.isPaid;
+  }
+
+  @Cron(CronExpression.EVERY_QUARTER)
+  async handleCancelOrder() {
+    this.logger.log('Ejecutando cancelación de órdenes no pagadas...');
+
+    const canceledAt = new Date();
+    canceledAt.setHours(canceledAt.getHours() - 5);
+
+    const ordersToCancel = await this.orderModel.findAll({
+      where: {
+        updatedAt: { [Op.lt]: new Date() },
+        isPaid: false,
+        status: 0,
+      },
+      include: [this.orderItemModel]
+    });
+
+    for (const order of ordersToCancel) {
+      await this.orderItemModel.update(
+        {
+          status: 3,
+          updatedAt: canceledAt,
+        },
+        { where: { orderId: order.id } }
+      );
+
+      await order.update({
+        canceledAt,
+        isActive: 0,
+        status: 5,
+      });
+    }
   }
 
 }
