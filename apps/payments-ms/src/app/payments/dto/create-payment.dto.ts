@@ -19,8 +19,12 @@ export class CreatePaymentDto {
     @IsOptional()
     @IsString()
     @IsIn(['P', 'R', 'A'])
-    status: string;
+    status?: string;
 
     @IsDateString()
     paymentDate: Date;
+
+    @IsOptional()
+    @IsString()
+    comment?: string;
 }

@@ -54,6 +54,14 @@ export class Payment extends Model{
     paymentDate: Date;
 
     @Column({
+        type: DataType.STRING,
+        allowNull: true,
+        field: 'COMMENT',
+        defaultValue: 'Sin observaciones'
+    })
+    comment: String;
+
+    @Column({
         type: DataType.DATE,
         allowNull: false,
         field: 'CREATED_AT'
