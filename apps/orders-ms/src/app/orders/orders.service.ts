@@ -6,7 +6,7 @@ import { RpcException } from '@nestjs/microservices';
 import { v4 as UuidV4 } from 'uuid';
 import { HttpService } from '../../config';
 import { OrderItem } from './models/order-item.model';
-import { Sequelize, UpdatedAt } from 'sequelize-typescript';
+import { Sequelize } from 'sequelize-typescript';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Op } from 'sequelize';
 
@@ -238,9 +238,9 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  async handleDeliveredItemStatus(userId: string, id: string, orderItemId: string) {
+  async handleOrderItemStatusChange(id: string, orderItemId: string, userId?: string) {
     try {
-      const order = await this.findOneUserOrder(userId, id);
+      const order = await this.findOneUserOrder(id, userId);
 
       if (!order) {
         throw new RpcException({
@@ -278,6 +278,8 @@ export class OrdersService implements OnModuleInit {
             updatedAt,
           });
 
+          this.handleOrderStatusUpdate(userId, id);
+
           return {
             success: true,
             message: "El item ha sido entregado exitosamente."
@@ -307,6 +309,8 @@ export class OrdersService implements OnModuleInit {
             updatedAt,
           });
 
+          this.handleOrderStatusUpdate(userId, id);
+
           return {
             success: true,
             message: "El item ha sido recogido exitosamente."
@@ -329,9 +333,7 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  // Metodo para actualizar una orden al estado Shipped. Este metodo debera ser llamado 
-  // cuando todos los items esten en estado entregado a repartidor o similar
-  async handleShippedStatus(userId: string, id: string) {
+  async handleOrderStatusUpdate(userId: string, id: string) {
     const order = await this.findOneUserOrder(userId, id);
 
     if (!order) {
@@ -348,30 +350,48 @@ export class OrdersService implements OnModuleInit {
           message: 'Accion no permitida',
         })
       } else {
-        // TODO: Validar que los items esten en estado entregado
-
         const updatedAt = new Date();
         updatedAt.setHours(updatedAt.getHours() - 5);
 
-        await order.update({
-          status: 2,
-          updatedAt,
-        });
+        let message = '';
+
+        if ( order.homeDelivery ) {
+          if ( order.orderItems.every( item => item.status === 1 ) ) {
+            await order.update({
+              status: 2,
+              updatedAt,
+            });
+  
+            message = "La orden ha sido enviada a repartidor exitosamente.";
+          }
+        } else {
+          if ( order.orderItems.every( item => item.status === 2 ) ) {
+            await order.update({
+              status: 3,
+              updatedAt,
+            });
+  
+            message = "La orden ha sido enviada a repartidor exitosamente.";
+          }
+        }
 
         return {
           success: true,
-          message: "La orden ha sido enviada exitosamente."
+          message,
         };
       }
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
         success: false,
-        message: "No se puedo hacer el envio de la orden",
+        message: "Hubo un inconveniente en la solciitud, intente nuevamente.",
         // error: error.message
       });
     }
   }
+
+  // TODO: Implementar el metodo para cambiar estado de la orden a comnpletada y finalizar el proceso!!!
+  // este cambio debera ser llamado desde el front cuando el pet owner confirme la entrega o recoleccion de toda de la orden
 
   async findOrderItemsByEntrepreneur(entrepreneurId: string) {
     try {
