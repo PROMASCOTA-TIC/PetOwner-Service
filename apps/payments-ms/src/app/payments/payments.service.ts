@@ -18,7 +18,6 @@ export class PaymentsService {
       const newPayment = {
         ...createPaymentDto,
       }
-      console.log(newPayment);
       await this.payment.create(newPayment);
       return {message: 'Payment created successfully'};
     }catch (error){
@@ -46,10 +45,11 @@ export class PaymentsService {
   async update(id: string, updatePaymentDto: UpdatePaymentDto) {
     const { id:_, ...rest } = updatePaymentDto;
     await this.findOne(id);
-    return await this.payment.update(rest, { where: { id } }).catch((error) => {
+    await this.payment.update(rest, { where: { id } }).catch((error) => {
       this.logger.error('Error updating payment:', error.message);
       throw new RpcException(error.message);
     });
+    return {message: 'Payment updated successfully'};
   }
   
 }

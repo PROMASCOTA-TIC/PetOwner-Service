@@ -57,7 +57,7 @@ export class Payment extends Model{
         type: DataType.STRING,
         allowNull: true,
         field: 'COMMENT',
-        defaultValue: 'Sin observaciones'
+        defaultValue: ''
     })
     comment: String;
 
