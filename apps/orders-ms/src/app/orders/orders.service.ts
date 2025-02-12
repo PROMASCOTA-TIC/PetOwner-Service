@@ -72,6 +72,8 @@ export class OrdersService implements OnModuleInit {
         { transaction }
       );
 
+      // TODO: Consumir servicio para obtener el valor de la comision
+
       const orderItems = createOrderDto.items.map(orderItem => ({
         orderItemId: UuidV4(),
         orderId: order.id,
@@ -136,15 +138,19 @@ export class OrdersService implements OnModuleInit {
         message: "No se lograron encontrar ordenes del usuario",
         // error: error.message,
       });
-
     }
 
   }
 
-  async findOneUserOrder(userId: string, id: string) {
+  async findOneUserOrder(id: string, userId?: string) {
     try {
+      const whereClause: any = { id: id, isActive: 1 };
+      if (userId) {
+        whereClause.userId = userId;
+      }
+
       const order = await this.orderModel.findOne({
-        where: { id: id, userId, isActive: 1 },
+        where: whereClause,
         include: [this.orderItemModel]
       });
 
@@ -195,6 +201,11 @@ export class OrdersService implements OnModuleInit {
             updatedAt,
             paymentComment,
           });
+
+          // TODO: Consumir servicio para se haga el registro del Ingreso al Administrador
+
+          // TODO: Luego de crear el ingreso, por cada item mandar a crear la venta por cada uno, consumiendo
+          // el servicio de Incomes
 
           return {
             success: true,
@@ -386,6 +397,30 @@ export class OrdersService implements OnModuleInit {
       });
     }
   }
+
+  async findOrdersByEntrepreneur(entrepreneurId: string) {
+    try {
+      // Buscar todas las órdenes que tengan al menos un ítem del emprendedor
+      const orders = await this.orderModel.findAll({
+        attributes: { exclude: ["totalItems", "totalAmount"] },
+        include: [
+          {
+            model: this.orderItemModel,
+            where: { entrepreneurId }, // Filtra los ítems en la consulta
+            required: true, // Asegura que solo se incluyan órdenes con ítems de este emprendedor
+          },
+        ],
+      });
+  
+      return orders;
+    } catch (error) {
+      throw new RpcException({
+        status: HttpStatus.NOT_FOUND,
+        success: false,
+        message: "No se lograron encontrar órdenes del emprendedor",
+      });
+    }
+  }  
 
   // METODOS DE APOYO
   isReadyToShip(order: Order) {

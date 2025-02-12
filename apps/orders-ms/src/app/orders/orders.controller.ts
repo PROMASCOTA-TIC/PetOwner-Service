@@ -29,9 +29,9 @@ export class OrdersController {
   }
 
   @MessagePattern('get_one_user_order')
-  async findOne(@Payload() payload: { userId: string; id: string }) {
+  async findOne(@Payload() payload: { id: string; userId?: string }) {
     const { userId, id } = payload;
-    return this.ordersService.findOneUserOrder(userId, id);
+    return this.ordersService.findOneUserOrder(id, userId);
   }
 
   @MessagePattern('confirm_deliver_item')
@@ -43,5 +43,10 @@ export class OrdersController {
   @MessagePattern('get_items_by_entrepreneur')
   async getItemsByEntrepreneur(@Payload('entrepreneurId') entrepreneurId: string) {
     return this.ordersService.findOrderItemsByEntrepreneur(entrepreneurId);
+  }
+
+  @MessagePattern('get_orders_by_entrepreneur')
+  async getOrdersByEntrepreneur(@Payload('entrepreneurId') entrepreneurId: string) {
+    return this.ordersService.findOrdersByEntrepreneur(entrepreneurId);
   }
 }
