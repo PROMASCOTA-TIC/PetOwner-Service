@@ -62,6 +62,13 @@ export class Payment extends Model{
     comment: String;
 
     @Column({
+        type: DataType.STRING,
+        allowNull: true,
+        field: 'VOUCHER'
+    })
+    voucherUrl: string;
+
+    @Column({
         type: DataType.DATE,
         allowNull: false,
         field: 'CREATED_AT'

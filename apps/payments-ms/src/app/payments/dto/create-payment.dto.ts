@@ -27,4 +27,8 @@ export class CreatePaymentDto {
     @IsOptional()
     @IsString()
     comment?: string;
+
+    @IsOptional()
+    @IsString()
+    voucherUrl?: string;
 }
