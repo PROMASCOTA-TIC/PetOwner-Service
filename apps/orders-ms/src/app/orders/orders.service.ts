@@ -162,23 +162,22 @@ export class OrdersService implements OnModuleInit {
     try {
       // Buscar y actualizar el estado de pago de la orden
       const order = await this.findOneUserOrder(id);
+      let resp = {};
 
       if (!order) {
-        // throw new NotFoundException(`Order with ID ${orderId} not found for user ${userId}`);
-        throw new RpcException({
-          code: 404,
-          message: `Order with ID ${id} not found for user ${id}`,
-        })
+        resp = {
+          success: false,
+          message: 'No se encontro la orden',
+        };
       }
 
       const { data } = await HttpService.get(`payments/${order.id}`);
 
       if (data.status === 'P') {
-        throw new RpcException({
-          status: HttpStatus.BAD_REQUEST,
+        resp = {
           success: false,
-          message: 'La orden aun no ha sido pagada',
-        })
+          message: 'La orden ya se encuentra pagada',
+        };
       } else {
         if (data.status === 'A') {
           const paidAt = new Date();
@@ -200,7 +199,7 @@ export class OrdersService implements OnModuleInit {
           // TODO: Luego de crear el ingreso, por cada item mandar a crear la venta por cada uno, consumiendo
           // el servicio de Incomes
 
-          return {
+          resp = {
             success: true,
             message: "El pago de la orden se ha procesdo exitosamente."
           };
@@ -214,13 +213,14 @@ export class OrdersService implements OnModuleInit {
             paymentComment,
           });
 
-          return {
+          resp = {
             success: true,
             message: "El pago de la orden ha sido rechazado."
           };
         }
       }
 
+      return resp;
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
@@ -366,8 +366,49 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  // TODO: Implementar el metodo para cambiar estado de la orden a comnpletada y finalizar el proceso!!!
-  // este cambio debera ser llamado desde el front cuando el pet owner confirme la entrega o recoleccion de toda de la orden
+  async handleOrderComplete(id: string) {
+    const order = await this.findOneUserOrder(id);
+
+    try {
+      let resp = {};
+
+      if (order) {
+        if (order.status === 2 || order.status === 3 ) {
+          const updatedAt = new Date();
+          updatedAt.setHours(updatedAt.getHours() - 5);
+  
+          await order.update({
+            status: 4,
+            updatedAt,
+          });
+  
+          resp = {
+            success: true,
+            message: "La orden ha sido completada exitosamente.",
+          };
+        } else {
+          resp = {
+            success: false,
+            message: "La orden no se encuentra en estado para completar",
+          };
+        }
+      } else {
+        resp = {
+          success: false,
+          message: "No se encontro la orden",
+        };
+      }
+
+      return resp;
+    } catch (error) {
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        success: false,
+        message: "Hubo un inconveniente en la solciitud, intente nuevamente.",
+        // error: error.message
+      });
+    }
+  }
 
   async findOrderItemsByEntrepreneur(entrepreneurId: string) {
     try {
@@ -406,14 +447,15 @@ export class OrdersService implements OnModuleInit {
             required: true, // Asegura que solo se incluyan órdenes con ítems de este emprendedor
           },
         ],
+        where: { isActive: 1, isPaid: 1, status: 1 },
       });
 
-      return orders;
+      return orders ? orders : { message: 'No se encontraron ordenes' };
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.NOT_FOUND,
         success: false,
-        message: "No se lograron encontrar órdenes del emprendedor",
+        message: "Hubo un problema al buscar las ordenes",
       });
     }
   }
