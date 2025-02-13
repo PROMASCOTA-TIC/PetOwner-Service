@@ -96,8 +96,6 @@ export class OrdersService implements OnModuleInit {
     } catch (error) {
       await transaction.rollback();
 
-      console.error("Error al crear la orden:", error);
-
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
         message: "Error al crear la orden",
@@ -142,15 +140,10 @@ export class OrdersService implements OnModuleInit {
 
   }
 
-  async findOneUserOrder(id: string, userId?: string) {
+  async findOneUserOrder(id: string) {
     try {
-      const whereClause: any = { id: id, isActive: 1 };
-      if (userId) {
-        whereClause.userId = userId;
-      }
-
       const order = await this.orderModel.findOne({
-        where: whereClause,
+        where: { id: id, isActive: 1 },
         include: [this.orderItemModel]
       });
 
@@ -168,24 +161,23 @@ export class OrdersService implements OnModuleInit {
   async updatePaymentStatus(userId: string, id: string, paymentComment: string) {
     try {
       // Buscar y actualizar el estado de pago de la orden
-      const order = await this.findOneUserOrder(userId, id);
+      const order = await this.findOneUserOrder(id);
+      let resp = {};
 
       if (!order) {
-        // throw new NotFoundException(`Order with ID ${orderId} not found for user ${userId}`);
-        throw new RpcException({
-          code: 404,
-          message: `Order with ID ${id} not found for user ${id}`,
-        })
+        resp = {
+          success: false,
+          message: 'No se encontro la orden',
+        };
       }
 
       const { data } = await HttpService.get(`payments/${order.id}`);
 
       if (data.status === 'P') {
-        throw new RpcException({
-          status: HttpStatus.BAD_REQUEST,
+        resp = {
           success: false,
-          message: 'La orden aun no ha sido pagada',
-        })
+          message: 'La orden ya se encuentra pagada',
+        };
       } else {
         if (data.status === 'A') {
           const paidAt = new Date();
@@ -207,7 +199,7 @@ export class OrdersService implements OnModuleInit {
           // TODO: Luego de crear el ingreso, por cada item mandar a crear la venta por cada uno, consumiendo
           // el servicio de Incomes
 
-          return {
+          resp = {
             success: true,
             message: "El pago de la orden se ha procesdo exitosamente."
           };
@@ -221,13 +213,14 @@ export class OrdersService implements OnModuleInit {
             paymentComment,
           });
 
-          return {
+          resp = {
             success: true,
             message: "El pago de la orden ha sido rechazado."
           };
         }
       }
 
+      return resp;
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
@@ -238,9 +231,9 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  async handleOrderItemStatusChange(id: string, orderItemId: string, userId?: string) {
+  async handleOrderItemStatusChange(id: string, orderItemId: string) {
     try {
-      const order = await this.findOneUserOrder(id, userId);
+      const order = await this.findOneUserOrder(id);
 
       if (!order) {
         throw new RpcException({
@@ -250,7 +243,7 @@ export class OrdersService implements OnModuleInit {
         })
       }
 
-      const orderItem = order.orderItems.find(item => item.orderItemId === orderItemId);
+      const orderItem = order.orderItems.find(item => item.orderItemId === orderItemId)
 
       if (!orderItem) {
         throw new RpcException({
@@ -262,35 +255,32 @@ export class OrdersService implements OnModuleInit {
 
       if (order.homeDelivery) {
         if (orderItem.status === 1) {
-          throw new RpcException({
-            status: HttpStatus.BAD_REQUEST,
-            success: false,
-            message: 'El item ya ha sido entregado',
-          })
-        }
-
-        if (order.homeDelivery && order.status === 0) {
-          const updatedAt = new Date();
-          updatedAt.setHours(updatedAt.getHours() - 5);
-
-          await orderItem.update({
-            status: 1,
-            updatedAt,
-          });
-
-          this.handleOrderStatusUpdate(userId, id);
-
-          return {
-            success: true,
-            message: "El item ha sido entregado exitosamente."
-          };
+          return { message: 'El item ya ha sido entregado', succes: false };
         } else {
-          throw new RpcException({
-            status: HttpStatus.BAD_REQUEST,
-            success: false,
-            message: 'Accion no permitida',
-          })
+          if (order.homeDelivery && order.status === 0) {
+            const updatedAt = new Date();
+            updatedAt.setHours(updatedAt.getHours() - 5);
+
+            await orderItem.update({
+              status: 1,
+              updatedAt,
+            });
+
+            this.handleOrderStatusUpdate(id);
+
+            return {
+              success: true,
+              message: "El item ha sido entregado exitosamente."
+            };
+          } else {
+            throw new RpcException({
+              status: HttpStatus.BAD_REQUEST,
+              success: false,
+              message: 'Accion no permitida',
+            })
+          }
         }
+
       } else {
         if (orderItem.status === 2) {
           throw new RpcException({
@@ -300,7 +290,7 @@ export class OrdersService implements OnModuleInit {
           })
         }
 
-        if (!order.homeDelivery && order.status === 1) {
+        if (!order.homeDelivery && order.status === 0) {
           const updatedAt = new Date();
           updatedAt.setHours(updatedAt.getHours() - 5);
 
@@ -309,7 +299,7 @@ export class OrdersService implements OnModuleInit {
             updatedAt,
           });
 
-          this.handleOrderStatusUpdate(userId, id);
+          this.handleOrderStatusUpdate(id);
 
           return {
             success: true,
@@ -333,23 +323,11 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  async handleOrderStatusUpdate(userId: string, id: string) {
-    const order = await this.findOneUserOrder(userId, id);
-
-    if (!order) {
-      throw new RpcException({
-        code: 404,
-        message: `Order with ID ${id} not found for user ${id}`,
-      })
-    }
+  async handleOrderStatusUpdate(id: string) {
+    const order = await this.findOneUserOrder(id);
 
     try {
-      if (!this.isReadyToShip(order)) {
-        throw new RpcException({
-          code: 400,
-          message: 'Accion no permitida',
-        })
-      } else {
+      if (order) {
         const updatedAt = new Date();
         updatedAt.setHours(updatedAt.getHours() - 5);
 
@@ -361,7 +339,6 @@ export class OrdersService implements OnModuleInit {
               status: 2,
               updatedAt,
             });
-
             message = "La orden ha sido enviada a repartidor exitosamente.";
           }
         } else {
@@ -370,7 +347,6 @@ export class OrdersService implements OnModuleInit {
               status: 3,
               updatedAt,
             });
-
             message = "La orden ha sido enviada a repartidor exitosamente.";
           }
         }
@@ -390,8 +366,49 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  // TODO: Implementar el metodo para cambiar estado de la orden a comnpletada y finalizar el proceso!!!
-  // este cambio debera ser llamado desde el front cuando el pet owner confirme la entrega o recoleccion de toda de la orden
+  async handleOrderComplete(id: string) {
+    const order = await this.findOneUserOrder(id);
+
+    try {
+      let resp = {};
+
+      if (order) {
+        if (order.status === 2 || order.status === 3) {
+          const updatedAt = new Date();
+          updatedAt.setHours(updatedAt.getHours() - 5);
+
+          await order.update({
+            status: 4,
+            updatedAt,
+          });
+
+          resp = {
+            success: true,
+            message: "La orden ha sido completada exitosamente.",
+          };
+        } else {
+          resp = {
+            success: false,
+            message: "La orden no se encuentra en estado para completar",
+          };
+        }
+      } else {
+        resp = {
+          success: false,
+          message: "No se encontro la orden",
+        };
+      }
+
+      return resp;
+    } catch (error) {
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        success: false,
+        message: "Hubo un inconveniente en la solciitud, intente nuevamente.",
+        // error: error.message
+      });
+    }
+  }
 
   async findOrderItemsByEntrepreneur() {
     try {
@@ -457,14 +474,14 @@ export class OrdersService implements OnModuleInit {
               })
             )
           );
-            const aux = {
+          const aux = {
             orderId: item.orders[0]?.id || null, // Tomo el primer orderId disponible
             order: {
               businessName: entrepreneur.data.businessName,
               address: `${entrepreneur.data.address.callePrincipal} & ${entrepreneur.data.address.calleSecundaria}, ${entrepreneur.data.address.numeracion}, ${entrepreneur.data.address.referencia}`,
               products,
             }
-            };
+          };
           return aux;
         })
       );
@@ -522,7 +539,7 @@ export class OrdersService implements OnModuleInit {
       });
     }
   }
-    
+
 
   async findOrdersByEntrepreneur(entrepreneurId: string) {
     try {
@@ -536,21 +553,23 @@ export class OrdersService implements OnModuleInit {
             required: true, // Asegura que solo se incluyan órdenes con ítems de este emprendedor
           },
         ],
+        where: { isActive: 1, isPaid: 1, status: 1 },
       });
 
-      return orders;
+      return orders ? orders : { message: 'No se encontraron ordenes' };
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.NOT_FOUND,
         success: false,
-        message: "No se lograron encontrar órdenes del emprendedor",
+        message: "Hubo un problema al buscar las ordenes",
       });
     }
   }
 
   // METODOS DE APOYO
   isReadyToShip(order: Order) {
-    return order.isActive && order.homeDelivery && order.status === 1 && order.isPaid;
+    // return order.isActive && order.homeDelivery && order.status === 1 && order.isPaid;
+    return order.isActive && order.homeDelivery && order.status === 1;
   }
 
   @Cron(CronExpression.EVERY_QUARTER)

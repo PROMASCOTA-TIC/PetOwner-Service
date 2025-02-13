@@ -31,13 +31,13 @@ export class OrdersController {
   @MessagePattern('get_one_user_order')
   async findOne(@Payload() payload: { id: string; userId?: string }) {
     const { userId, id } = payload;
-    return this.ordersService.findOneUserOrder(id, userId);
+    return this.ordersService.findOneUserOrder(id);
   }
 
   @MessagePattern('change_order_item_status')
-  async changeOrderItemStatus(@Payload() payload: { id: string, orderItemId: string, userId?: string }) {
-    const { userId, id, orderItemId } = payload;
-    return this.ordersService.handleOrderItemStatusChange(userId, id, orderItemId);
+  async changeOrderItemStatus(@Payload() payload: { id: string, orderItemId: string }) {
+    const { id, orderItemId } = payload;
+    return this.ordersService.handleOrderItemStatusChange(id, orderItemId);
   }
 
   @MessagePattern('get_items_by_entrepreneur')
