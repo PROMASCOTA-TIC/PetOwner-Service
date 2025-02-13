@@ -355,22 +355,22 @@ export class OrdersService implements OnModuleInit {
 
         let message = '';
 
-        if ( order.homeDelivery ) {
-          if ( order.orderItems.every( item => item.status === 1 ) ) {
+        if (order.homeDelivery) {
+          if (order.orderItems.every(item => item.status === 1)) {
             await order.update({
               status: 2,
               updatedAt,
             });
-  
+
             message = "La orden ha sido enviada a repartidor exitosamente.";
           }
         } else {
-          if ( order.orderItems.every( item => item.status === 2 ) ) {
+          if (order.orderItems.every(item => item.status === 2)) {
             await order.update({
               status: 3,
               updatedAt,
             });
-  
+
             message = "La orden ha sido enviada a repartidor exitosamente.";
           }
         }
@@ -393,30 +393,136 @@ export class OrdersService implements OnModuleInit {
   // TODO: Implementar el metodo para cambiar estado de la orden a comnpletada y finalizar el proceso!!!
   // este cambio debera ser llamado desde el front cuando el pet owner confirme la entrega o recoleccion de toda de la orden
 
-  async findOrderItemsByEntrepreneur(entrepreneurId: string) {
+  async findOrderItemsByEntrepreneur() {
     try {
-      // Buscar todos los items de una orden de un emprendedor
-      const orderItems = await this.orderItemModel.findAll({
-        where: { entrepreneurId, status: { [Op.or]: [1, 2] } },
-        include: [this.orderModel]
+      const orders = await this.orderModel.findAll({
+        where: { isActive: 1, homeDelivery: 1, status: 1, isPaid: 1 },
+        include: [
+          {
+            model: this.orderItemModel,
+            where: { status: 0 }, // Filtra los ítems en la consulta
+            required: true,
+          }
+        ],
       });
 
-      // Filtrar items cuya orden cumpla con las condiciones
-      const filteredOrderItems = orderItems.filter(orderItem => {
-        const order = orderItem.order;
-        return order.isActive && order.isPaid && order.status === 4;
+      const groupedByEntrepreneur = {};
+
+      orders.forEach((order) => {
+        order.orderItems.forEach((item) => {
+          const { entrepreneurId } = item;
+          // Si el emprendedor no está en el resultado, lo agregamos
+          if (!groupedByEntrepreneur[entrepreneurId]) {
+            groupedByEntrepreneur[entrepreneurId] = {
+              entrepreneurId,
+              orders: [],
+            };
+          }
+
+          // Buscamos si la orden ya está en el array de este emprendedor
+          let existingOrder = groupedByEntrepreneur[entrepreneurId].orders.find(o => o.id === order.id);
+
+          if (!existingOrder) {
+            // Si la orden no existe, la agregamos
+            existingOrder = {
+              id: order.id,
+              isActive: order.isActive,
+              orderItems: [],
+            };
+            groupedByEntrepreneur[entrepreneurId].orders.push(existingOrder);
+          }
+
+          // Agregamos el item a la orden correspondiente
+          existingOrder.orderItems.push({
+            orderItemId: item.orderItemId,
+            itemId: item.itemId,
+            quantity: item.quantity,
+            price: item.price,
+            status: item.status,
+          });
+        });
       });
 
-      return filteredOrderItems;
+      // Convertimos el objeto final en un array
+      const result = Object.values(groupedByEntrepreneur);
+
+      const data = await Promise.all(
+        result.map(async (item: any) => {
+          const entrepreneur = await HttpService.get(`users/entrepreneurs/${item.entrepreneurId}`);
+          const products = await Promise.all(
+            item.orders.flatMap((order) =>
+              order.orderItems.map(async (orderItem) => {
+                const product = await HttpService.get(`products/${orderItem.itemId}`);
+                return product.data.name;
+              })
+            )
+          );
+            const aux = {
+            orderId: item.orders[0]?.id || null, // Tomo el primer orderId disponible
+            order: {
+              businessName: entrepreneur.data.businessName,
+              address: `${entrepreneur.data.address.callePrincipal} & ${entrepreneur.data.address.calleSecundaria}, ${entrepreneur.data.address.numeracion}, ${entrepreneur.data.address.referencia}`,
+              products,
+            }
+            };
+          return aux;
+        })
+      );
+      console.log("data", data);
+      return data
     } catch (error) {
       throw new RpcException({
         status: HttpStatus.NOT_FOUND,
         success: false,
         message: "No se lograron encontrar items del emprendedor",
-        // error: error.message,
       });
     }
   }
+
+  async findOrderItemsByPetOwner() {
+    try {
+      const orders = await this.orderModel.findAll({
+        where: { isActive: 1, homeDelivery: 1, status: 1, isPaid: 1 },
+        include: [
+          {
+            model: this.orderItemModel,
+            where: { status: 0 }, // Filtra los ítems en la consulta
+            required: true,
+          }
+        ],
+      });
+      const data = await Promise.all(
+        orders.map(async (order) => {
+          const petOwner = await HttpService.get(`users/pet-owner/${order.userId}`);
+          const products = await Promise.all(
+            order.orderItems.map(async (orderItem) => {
+              const product = await HttpService.get(`products/${orderItem.itemId}`);
+              return product.data.name;
+            })
+          );
+          const aux = {
+            orderId: order.id,
+            order: {
+              petOwnerName: petOwner.data.name,
+              address: order.petOwnerAddress ? order.petOwnerAddress : "",
+              products,
+            }
+          };
+          console.log("aux", aux);
+          return aux;
+        })
+      );
+      console.log("data", data);
+      return data;
+    } catch (error) {
+      throw new RpcException({
+        status: HttpStatus.NOT_FOUND,
+        success: false,
+        message: "No se lograron encontrar items del dueño de mascota",
+      });
+    }
+  }
+    
 
   async findOrdersByEntrepreneur(entrepreneurId: string) {
     try {
@@ -431,7 +537,7 @@ export class OrdersService implements OnModuleInit {
           },
         ],
       });
-  
+
       return orders;
     } catch (error) {
       throw new RpcException({
@@ -440,7 +546,7 @@ export class OrdersService implements OnModuleInit {
         message: "No se lograron encontrar órdenes del emprendedor",
       });
     }
-  }  
+  }
 
   // METODOS DE APOYO
   isReadyToShip(order: Order) {

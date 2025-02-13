@@ -41,8 +41,13 @@ export class OrdersController {
   }
 
   @MessagePattern('get_items_by_entrepreneur')
-  async getItemsByEntrepreneur(@Payload('entrepreneurId') entrepreneurId: string) {
-    return this.ordersService.findOrderItemsByEntrepreneur(entrepreneurId);
+  async getItemsByEntrepreneur() {
+    return this.ordersService.findOrderItemsByEntrepreneur();
+  }
+
+  @MessagePattern('get_items_by_petOwner')
+  async getItemsByPetOwner() {
+    return this.ordersService.findOrderItemsByPetOwner();
   }
 
   @MessagePattern('get_orders_by_entrepreneur')
