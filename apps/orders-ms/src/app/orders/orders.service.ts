@@ -96,8 +96,6 @@ export class OrdersService implements OnModuleInit {
     } catch (error) {
       await transaction.rollback();
 
-      console.error("Error al crear la orden:", error);
-
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
         message: "Error al crear la orden",
@@ -142,15 +140,10 @@ export class OrdersService implements OnModuleInit {
 
   }
 
-  async findOneUserOrder(id: string, userId?: string) {
+  async findOneUserOrder(id: string) {
     try {
-      const whereClause: any = { id: id, isActive: 1 };
-      if (userId) {
-        whereClause.userId = userId;
-      }
-
       const order = await this.orderModel.findOne({
-        where: whereClause,
+        where: { id: id, isActive: 1 },
         include: [this.orderItemModel]
       });
 
@@ -168,7 +161,7 @@ export class OrdersService implements OnModuleInit {
   async updatePaymentStatus(userId: string, id: string, paymentComment: string) {
     try {
       // Buscar y actualizar el estado de pago de la orden
-      const order = await this.findOneUserOrder(userId, id);
+      const order = await this.findOneUserOrder(id);
 
       if (!order) {
         // throw new NotFoundException(`Order with ID ${orderId} not found for user ${userId}`);
@@ -238,9 +231,9 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  async handleOrderItemStatusChange(id: string, orderItemId: string, userId?: string) {
+  async handleOrderItemStatusChange(id: string, orderItemId: string) {
     try {
-      const order = await this.findOneUserOrder(id, userId);
+      const order = await this.findOneUserOrder(id);
 
       if (!order) {
         throw new RpcException({
@@ -250,7 +243,7 @@ export class OrdersService implements OnModuleInit {
         })
       }
 
-      const orderItem = order.orderItems.find(item => item.orderItemId === orderItemId);
+      const orderItem = order.orderItems.find(item => item.orderItemId === orderItemId)
 
       if (!orderItem) {
         throw new RpcException({
@@ -262,35 +255,32 @@ export class OrdersService implements OnModuleInit {
 
       if (order.homeDelivery) {
         if (orderItem.status === 1) {
-          throw new RpcException({
-            status: HttpStatus.BAD_REQUEST,
-            success: false,
-            message: 'El item ya ha sido entregado',
-          })
-        }
-
-        if (order.homeDelivery && order.status === 0) {
-          const updatedAt = new Date();
-          updatedAt.setHours(updatedAt.getHours() - 5);
-
-          await orderItem.update({
-            status: 1,
-            updatedAt,
-          });
-
-          this.handleOrderStatusUpdate(userId, id);
-
-          return {
-            success: true,
-            message: "El item ha sido entregado exitosamente."
-          };
+          return { message: 'El item ya ha sido entregado', succes: false };
         } else {
-          throw new RpcException({
-            status: HttpStatus.BAD_REQUEST,
-            success: false,
-            message: 'Accion no permitida',
-          })
+          if (order.homeDelivery && order.status === 0) {
+            const updatedAt = new Date();
+            updatedAt.setHours(updatedAt.getHours() - 5);
+
+            await orderItem.update({
+              status: 1,
+              updatedAt,
+            });
+
+            this.handleOrderStatusUpdate(id);
+
+            return {
+              success: true,
+              message: "El item ha sido entregado exitosamente."
+            };
+          } else {
+            throw new RpcException({
+              status: HttpStatus.BAD_REQUEST,
+              success: false,
+              message: 'Accion no permitida',
+            })
+          }
         }
+
       } else {
         if (orderItem.status === 2) {
           throw new RpcException({
@@ -300,7 +290,7 @@ export class OrdersService implements OnModuleInit {
           })
         }
 
-        if (!order.homeDelivery && order.status === 1) {
+        if (!order.homeDelivery && order.status === 0) {
           const updatedAt = new Date();
           updatedAt.setHours(updatedAt.getHours() - 5);
 
@@ -309,7 +299,7 @@ export class OrdersService implements OnModuleInit {
             updatedAt,
           });
 
-          this.handleOrderStatusUpdate(userId, id);
+          this.handleOrderStatusUpdate(id);
 
           return {
             success: true,
@@ -333,44 +323,30 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  async handleOrderStatusUpdate(userId: string, id: string) {
-    const order = await this.findOneUserOrder(userId, id);
-
-    if (!order) {
-      throw new RpcException({
-        code: 404,
-        message: `Order with ID ${id} not found for user ${id}`,
-      })
-    }
+  async handleOrderStatusUpdate(id: string) {
+    const order = await this.findOneUserOrder(id);
 
     try {
-      if (!this.isReadyToShip(order)) {
-        throw new RpcException({
-          code: 400,
-          message: 'Accion no permitida',
-        })
-      } else {
+      if (order) {
         const updatedAt = new Date();
         updatedAt.setHours(updatedAt.getHours() - 5);
 
         let message = '';
 
-        if ( order.homeDelivery ) {
-          if ( order.orderItems.every( item => item.status === 1 ) ) {
+        if (order.homeDelivery) {
+          if (order.orderItems.every(item => item.status === 1)) {
             await order.update({
               status: 2,
               updatedAt,
             });
-  
             message = "La orden ha sido enviada a repartidor exitosamente.";
           }
         } else {
-          if ( order.orderItems.every( item => item.status === 2 ) ) {
+          if (order.orderItems.every(item => item.status === 2)) {
             await order.update({
               status: 3,
               updatedAt,
             });
-  
             message = "La orden ha sido enviada a repartidor exitosamente.";
           }
         }
@@ -431,7 +407,7 @@ export class OrdersService implements OnModuleInit {
           },
         ],
       });
-  
+
       return orders;
     } catch (error) {
       throw new RpcException({
@@ -440,11 +416,12 @@ export class OrdersService implements OnModuleInit {
         message: "No se lograron encontrar órdenes del emprendedor",
       });
     }
-  }  
+  }
 
   // METODOS DE APOYO
   isReadyToShip(order: Order) {
-    return order.isActive && order.homeDelivery && order.status === 1 && order.isPaid;
+    // return order.isActive && order.homeDelivery && order.status === 1 && order.isPaid;
+    return order.isActive && order.homeDelivery && order.status === 1;
   }
 
   @Cron(CronExpression.EVERY_QUARTER)
