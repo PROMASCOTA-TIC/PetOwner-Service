@@ -459,6 +459,31 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
+  async findPaidOrdersByEntrepreneur(entrepreneurId: string) {
+    try {
+      // Buscar todas las órdenes que tengan al menos un ítem del emprendedor
+      const orders = await this.orderModel.findAll({
+        attributes: { exclude: ["totalItems", "totalAmount"] },
+        include: [
+          {
+            model: this.orderItemModel,
+            where: { entrepreneurId }, // Filtra los ítems en la consulta
+            required: true, // Asegura que solo se incluyan órdenes con ítems de este emprendedor
+          },
+        ],
+        where: {  isPaid: true }
+      });
+
+      return orders ? orders : { message: 'No se encontraron ordenes' };
+    } catch (error) {
+      throw new RpcException({
+        status: HttpStatus.NOT_FOUND,
+        success: false,
+        message: "Hubo un problema al buscar las ordenes",
+      });
+    }
+  }
+
   // METODOS DE APOYO
   isReadyToShip(order: Order) {
     // return order.isActive && order.homeDelivery && order.status === 1 && order.isPaid;

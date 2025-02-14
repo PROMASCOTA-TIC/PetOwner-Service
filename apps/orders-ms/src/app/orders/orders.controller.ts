@@ -49,4 +49,9 @@ export class OrdersController {
   async getOrdersByEntrepreneur(@Payload('entrepreneurId') entrepreneurId: string) {
     return this.ordersService.findOrdersByEntrepreneur(entrepreneurId);
   }
+
+  @MessagePattern('get_paid_orders_by_entrepreneur')
+  async getPaidOrdersByEntrepreneur(@Payload('entrepreneurId') entrepreneurId: string) {
+    return this.ordersService.findPaidOrdersByEntrepreneur(entrepreneurId);
+  }
 }
