@@ -42,6 +42,15 @@ export class PaymentsService {
     return payment;
   }
 
+  async findOneByOrderId(orderId: string) {
+    const payment = await this.payment.findOne({ where: { orderId } });
+    if (!payment) {
+      this.logger.error(`Payment with orderId ${orderId} not found`);
+      throw new NotFoundException(`Payment with orderId ${orderId} not found`);
+    }
+    return payment;
+  }
+
   async update(id: string, updatePaymentDto: UpdatePaymentDto) {
     const { id:_, ...rest } = updatePaymentDto;
     await this.findOne(id);

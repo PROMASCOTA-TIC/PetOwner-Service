@@ -23,6 +23,12 @@ export class PaymentsController {
     return this.paymentsService.findOne(id);
   }
 
+  @MessagePattern('find_one_payment_by_order_id')
+  findOneByOrderId(@Payload() orderId: string) {
+    console.log('orderId', orderId);
+    return this.paymentsService.findOneByOrderId(orderId);
+  }
+
   @MessagePattern('update_payment')
   update(@Payload() updatePaymentDto: UpdatePaymentDto) {
     return this.paymentsService.update(updatePaymentDto.id, updatePaymentDto);

@@ -1,20 +1,22 @@
-import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { InjectModel } from '@nestjs/sequelize';
 import { Order } from './models/order.model';
-import { RpcException } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { v4 as UuidV4 } from 'uuid';
 import { HttpService } from '../../config';
 import { OrderItem } from './models/order-item.model';
 import { Sequelize } from 'sequelize-typescript';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Op } from 'sequelize';
+import { lastValueFrom } from 'rxjs';
 
 @Injectable()
 export class OrdersService implements OnModuleInit {
   constructor(
     @InjectModel(Order) private orderModel: typeof Order,
     @InjectModel(OrderItem) private orderItemModel: typeof OrderItem,
+    @Inject('INCOME_SERVICE') private readonly incomeClient: ClientProxy,
     private readonly sequelize: Sequelize,
   ) { }
 
@@ -50,6 +52,8 @@ export class OrdersService implements OnModuleInit {
           return data;
         })
       );
+      
+      // TODO: Consumir servicio para obtener el valor de la comision
 
       const totalAmount = createOrderDto.items.reduce((acc, orderItem) => {
         const price = items.find(item => item.id === orderItem.itemId)?.finalPrice || 0;
@@ -57,7 +61,7 @@ export class OrdersService implements OnModuleInit {
       }, 0);
 
       const totalItems = createOrderDto.items.reduce((acc, orderItem) => acc + orderItem.quantity, 0);
-
+      
       // Create the order into the transaction
       const order = await this.orderModel.create(
         {
@@ -71,8 +75,6 @@ export class OrdersService implements OnModuleInit {
         },
         { transaction }
       );
-
-      // TODO: Consumir servicio para obtener el valor de la comision
 
       const orderItems = createOrderDto.items.map(orderItem => ({
         orderItemId: UuidV4(),
@@ -171,7 +173,7 @@ export class OrdersService implements OnModuleInit {
         };
       }
 
-      const { data } = await HttpService.get(`payments/${order.id}`);
+      const { data } = await HttpService.get(`payments/${order.id}/order`);
 
       if (data.status === 'P') {
         resp = {
@@ -194,14 +196,56 @@ export class OrdersService implements OnModuleInit {
             paymentComment,
           });
 
-          // TODO: Consumir servicio para se haga el registro del Ingreso al Administrador
+          const commissionValue = await HttpService.post(`commissions/calculate-pet-owner-commission`,
+            {
+              amount: order.totalAmount,
+            }
+          );
 
-          // TODO: Luego de crear el ingreso, por cada item mandar a crear la venta por cada uno, consumiendo
-          // el servicio de Incomes
+          const income = await HttpService.post(`incomes`, {
+            userId: userId,
+            commissionValue: commissionValue.data,
+            category: 'PetOwner',	
+          });
+          if(income.status === 400){
+            resp = {
+              success: false,
+              message: "Error al crear el ingreso",
+            };
+            throw new RpcException({
+              status: HttpStatus.BAD_REQUEST,
+              success: false,
+              message: "Error al crear el ingreso",
+            });
+          }
+
+          order.dataValues.orderItems.map(async (item) => {
+            const sale = {
+              entrepreneurId: item.dataValues.entrepreneurId,
+              productId: item.dataValues.itemId,
+              amount: parseFloat((item.dataValues.price * item.dataValues.quantity).toString()).toFixed(2),
+              salesDate: item.dataValues.createdAt.toISOString()
+            }
+            const response = await lastValueFrom( 
+              this.incomeClient.send('create_sale_by_product', {...sale})
+            ).catch((error) => {
+              resp = {
+                success: false,
+                message: "Error al crear la venta",
+              };
+              console.log("error", error);
+              throw new RpcException(
+                {
+                status: HttpStatus.BAD_REQUEST,
+                success: false,
+                message: "Error al crear la venta",
+              });
+            });
+          });
 
           resp = {
             success: true,
-            message: "El pago de la orden se ha procesdo exitosamente."
+            message: "El pago de la orden se ha procesado exitosamente."
           };
 
         } else if (data.status === 'R') {
@@ -485,7 +529,6 @@ export class OrdersService implements OnModuleInit {
           return aux;
         })
       );
-      console.log("data", data);
       return data
     } catch (error) {
       throw new RpcException({
@@ -525,11 +568,9 @@ export class OrdersService implements OnModuleInit {
               products,
             }
           };
-          console.log("aux", aux);
           return aux;
         })
       );
-      console.log("data", data);
       return data;
     } catch (error) {
       throw new RpcException({
