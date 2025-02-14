@@ -257,7 +257,7 @@ export class OrdersService implements OnModuleInit {
         if (orderItem.status === 1) {
           return { message: 'El item ya ha sido entregado', succes: false };
         } else {
-          if (order.homeDelivery && order.status === 0) {
+          if (order.homeDelivery && order.status === 1) {
             const updatedAt = new Date();
             updatedAt.setHours(updatedAt.getHours() - 5);
 
@@ -290,7 +290,7 @@ export class OrdersService implements OnModuleInit {
           })
         }
 
-        if (!order.homeDelivery && order.status === 0) {
+        if (!order.homeDelivery && order.status === 1) {
           const updatedAt = new Date();
           updatedAt.setHours(updatedAt.getHours() - 5);
 
@@ -447,7 +447,6 @@ export class OrdersService implements OnModuleInit {
             required: true, // Asegura que solo se incluyan órdenes con ítems de este emprendedor
           },
         ],
-        where: { isActive: 1, isPaid: 1, status: 1 },
       });
 
       return orders ? orders : { message: 'No se encontraron ordenes' };
