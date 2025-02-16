@@ -5,13 +5,8 @@
     "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
       "default",
-      "!{projectRoot}/.eslintrc.json",
-      "!{projectRoot}/eslint.config.js",
       "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
-      "!{projectRoot}/tsconfig.spec.json",
-      "!{projectRoot}/jest.config.[jt]s",
-      "!{projectRoot}/src/test-setup.[jt]s",
-      "!{projectRoot}/test-setup.[jt]s"
+      "!{projectRoot}/tsconfig.spec.json"
     ],
     "sharedGlobals": []
   },
@@ -23,25 +18,6 @@
         "serveTargetName": "serve",
         "previewTargetName": "preview"
       }
-    },
-    {
-      "plugin": "@nx/eslint/plugin",
-      "options": {
-        "targetName": "lint"
-      }
-    },
-    {
-      "plugin": "@nx/jest/plugin",
-      "options": {
-        "targetName": "test"
-      },
-      "exclude": [
-        "apps/shopping-cart-ms-e2e/**/*",
-        "apps/orders-ms-e2e/**/*",
-        "apps/addresses-ms-e2e/**/*",
-        "apps/pets-ms-e2e/**/*",
-        "apps/payments-ms-e2e/**/*"
-      ]
     }
   ]
 }
