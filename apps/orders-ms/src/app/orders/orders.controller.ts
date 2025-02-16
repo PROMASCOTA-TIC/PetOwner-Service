@@ -23,9 +23,9 @@ export class OrdersController {
   }
 
   @MessagePattern('order_paid')
-  async orderPaid(@Payload() payload: { userId: string; id: string, paymentComment: string }) {
-    const { userId, id, paymentComment } = payload;
-    return this.ordersService.updatePaymentStatus(userId, id, paymentComment);
+  async orderPaid(@Payload() payload: { userId: string; id: string }) {
+    const { userId, id } = payload;
+    return this.ordersService.updatePaymentStatus(userId, id);
   }
 
   @MessagePattern('get_one_user_order')
@@ -58,5 +58,10 @@ export class OrdersController {
   @MessagePattern('get_paid_orders_by_entrepreneur')
   async getPaidOrdersByEntrepreneur(@Payload('entrepreneurId') entrepreneurId: string) {
     return this.ordersService.findPaidOrdersByEntrepreneur(entrepreneurId);
+  }
+
+  @MessagePattern('complete_order')
+  async completeOrder(@Payload('orderId') orderId: string) {
+    return this.ordersService.handleOrderComplete(orderId);
   }
 }

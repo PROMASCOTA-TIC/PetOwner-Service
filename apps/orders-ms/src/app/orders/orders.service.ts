@@ -4,7 +4,7 @@ import { InjectModel } from '@nestjs/sequelize';
 import { Order } from './models/order.model';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { v4 as UuidV4 } from 'uuid';
-import { HttpService } from '../../config';
+import { envs, HttpService } from '../../config';
 import { OrderItem } from './models/order-item.model';
 import { Sequelize } from 'sequelize-typescript';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -40,69 +40,88 @@ export class OrdersService implements OnModuleInit {
       });
     }
 
-    // Begin a transaction
-    const transaction = await this.sequelize.transaction();
+    const petOwner = await HttpService.get(`pet-owner/${createOrderDto.userId}`);
 
-    try {
-      const itemIds = createOrderDto.items.map(item => item.itemId);
-
-      const items = await Promise.all(
-        itemIds.map(async (itemId) => {
-          const { data } = await HttpService.get(`products/${itemId}`);
-          return data;
-        })
-      );
-      
-      // TODO: Consumir servicio para obtener el valor de la comision
-
-      const totalAmount = createOrderDto.items.reduce((acc, orderItem) => {
-        const price = items.find(item => item.id === orderItem.itemId)?.finalPrice || 0;
-        return acc + parseFloat(price) * orderItem.quantity;
-      }, 0);
-
-      const totalItems = createOrderDto.items.reduce((acc, orderItem) => acc + orderItem.quantity, 0);
-      
-      // Create the order into the transaction
-      const order = await this.orderModel.create(
-        {
-          id: UuidV4(),
-          userId: createOrderDto.userId,
-          totalAmount: totalAmount,
-          totalItems: totalItems,
-          homeDelivery: createOrderDto.homeDelivery,
-          // petOwnerPhone: createOrderDto.petOwnerPhone, // TODO: Obtener desde una consulta al ms
-          paymentMethod: createOrderDto.paymentMethod,
-        },
-        { transaction }
-      );
-
-      const orderItems = createOrderDto.items.map(orderItem => ({
-        orderItemId: UuidV4(),
-        orderId: order.id,
-        itemId: orderItem.itemId,
-        quantity: orderItem.quantity,
-        price: parseFloat(items.find(item => item.id === orderItem.itemId)?.finalPrice),
-        entrepreneurId: items.find(item => item.id === orderItem.itemId)?.entrepreneurId,
-      }));
-
-      // insert order items into the transaction
-      await this.orderItemModel.bulkCreate(orderItems, { transaction });
-
-      await transaction.commit();
-
-      // return order;
-      return {
-        success: true,
-        message: "La orden se ha creado exitosamente."
-      };
-    } catch (error) {
-      await transaction.rollback();
-
+    if ( !petOwner.data ) {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
-        message: "Error al crear la orden",
-        error: error.message,
+        message: "No se puede crear una orden para un usuario que no es dueño de mascota",
       });
+    } else {
+      // Begin a transaction
+      const transaction = await this.sequelize.transaction();
+  
+      try {
+        const itemIds = createOrderDto.items.map(item => item.itemId);
+  
+        const items = await Promise.all(
+          itemIds.map(async (itemId) => {
+            const { data } = await HttpService.get(`products/${itemId}`);
+            return data;
+          })
+        );
+  
+        const totalPrice = createOrderDto.items.reduce((acc, orderItem) => {
+          const price = items.find(item => item.id === orderItem.itemId)?.finalPrice || 0;
+          return acc + parseFloat(price) * orderItem.quantity;
+        }, 0);
+  
+        const commission = await HttpService.post(`commissions/calculate-pet-owner-commission`, { amount: totalPrice });
+
+        let totalAmount = 0;
+        if ( createOrderDto.homeDelivery ) {
+          totalAmount = totalPrice + commission.data + envs.orderDeliveryCost;
+        } else {
+          totalAmount = totalPrice + commission.data;
+        }
+  
+        const totalItems = createOrderDto.items.reduce((acc, orderItem) => acc + orderItem.quantity, 0);
+
+        const petOwnerAddress = await HttpService.get(`addresses/${createOrderDto.userId}`);
+        
+        // Create the order into the transaction
+        const order = await this.orderModel.create(
+          {
+            id: UuidV4(),
+            userId: createOrderDto.userId,
+            totalAmount: totalAmount,
+            totalItems: totalItems,
+            homeDelivery: createOrderDto.homeDelivery,
+
+            petOwnerPhone: petOwner.data.phoneNumber,
+            paymentMethod: createOrderDto.paymentMethod,
+          },
+          { transaction }
+        );
+  
+        const orderItems = createOrderDto.items.map(orderItem => ({
+          orderItemId: UuidV4(),
+          orderId: order.id,
+          itemId: orderItem.itemId,
+          quantity: orderItem.quantity,
+          price: parseFloat(items.find(item => item.id === orderItem.itemId)?.finalPrice),
+          entrepreneurId: items.find(item => item.id === orderItem.itemId)?.entrepreneurId,
+        }));
+  
+        // insert order items into the transaction
+        await this.orderItemModel.bulkCreate(orderItems, { transaction });
+  
+        await transaction.commit();
+  
+        // return order;
+        return {
+          success: true,
+          message: "La orden se ha creado exitosamente."
+        };
+      } catch (error) {
+        await transaction.rollback();
+  
+        throw new RpcException({
+          status: HttpStatus.BAD_REQUEST,
+          message: "Error al crear la orden",
+          error: error.message,
+        });
+      }
     }
   }
 
@@ -123,8 +142,6 @@ export class OrdersService implements OnModuleInit {
   }
 
   async findAllByUser(userId: string) {
-    // TODO: Validar que el usuario exista
-
     try {
       // Buscar todas las órdenes de un usuario
       return this.orderModel.findAll({
@@ -160,7 +177,7 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
-  async updatePaymentStatus(userId: string, id: string, paymentComment: string) {
+  async updatePaymentStatus(userId: string, id: string) {
     try {
       // Buscar y actualizar el estado de pago de la orden
       const order = await this.findOneUserOrder(id);
@@ -193,7 +210,6 @@ export class OrdersService implements OnModuleInit {
             status: 1,
             paidAt,
             updatedAt,
-            paymentComment,
           });
 
           const commissionValue = await HttpService.post(`commissions/calculate-pet-owner-commission`,
@@ -248,19 +264,6 @@ export class OrdersService implements OnModuleInit {
             message: "El pago de la orden se ha procesado exitosamente."
           };
 
-        } else if (data.status === 'R') {
-          const updatedAt = new Date();
-          updatedAt.setHours(updatedAt.getHours() - 5);
-
-          await order.update({
-            updatedAt,
-            paymentComment,
-          });
-
-          resp = {
-            success: true,
-            message: "El pago de la orden ha sido rechazado."
-          };
         }
       }
 

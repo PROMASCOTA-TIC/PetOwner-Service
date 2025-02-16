@@ -7,6 +7,7 @@ interface EnvVars {
     DB_ORDER_PASSWORD: string;
     CONNECTION_STRING: string;
     ORDER_INITIAL_STATUS: number;
+    ORDER_DELIVERY_COST: number;
     NATS_SERVERS: string[];
 }
 
@@ -16,6 +17,7 @@ const envsSchema = joi.object({
     DB_ORDER_PASSWORD: joi.string().required(),
     CONNECTION_STRING: joi.string().required(),
     ORDER_INITIAL_STATUS: joi.number().required(),
+    ORDER_DELIVERY_COST: joi.number().required(),
     NATS_SERVERS: joi.array().items(joi.string()).required(),
 }).unknown(true);
 
@@ -36,5 +38,6 @@ export const envs = {
     dbOrderPassword: envVars.DB_ORDER_PASSWORD,
     connectionString: envVars.CONNECTION_STRING,
     orderInitialStatus: envVars.ORDER_INITIAL_STATUS,
+    orderDeliveryCost: envVars.ORDER_DELIVERY_COST,
     natsServers: envVars.NATS_SERVERS,
 }

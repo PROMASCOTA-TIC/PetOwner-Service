@@ -17,10 +17,6 @@ export class CreateOrderDto {
     @IsOptional()
     petOwnerAddress?: string;
 
-    // @IsOptional()
-    // @Length(10, 10)
-    // petOwnerPhone: string;
-
     @IsString()
     @IsIn(['Transfer', 'Debit Card'])
     paymentMethod: string;
