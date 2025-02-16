@@ -32,6 +32,49 @@ export class OrdersService implements OnModuleInit {
     }
   }
 
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async handleCancelOrder() {
+    this.logger.log('Ejecutando cancelación de órdenes no pagadas...');
+
+    const now = new Date();
+    const fifteenMinutesAgo = new Date(now);
+    fifteenMinutesAgo.setMinutes(now.getMinutes() - 15);
+
+    const ordersToCancel = await this.orderModel.findAll({
+      where: {
+        createdAt: { [Op.gt]: fifteenMinutesAgo }, // Ahora filtra órdenes creadas hace menos de 15 min
+        isPaid: false,
+        status: 0,
+      },
+      include: [this.orderItemModel]
+    });
+
+    for (const order of ordersToCancel) {
+      const orderCreatedAt = new Date(order.createdAt);
+      const timeDiffMinutes = (now.getTime() - orderCreatedAt.getTime()) / (1000 * 60);
+
+      if (timeDiffMinutes < 15) { // Se valida que efectivamente sea menor a 15 minutos
+        const canceledAt = new Date().toISOString(); // Usamos toISOString() para evitar problemas de zona horaria
+
+        await this.orderItemModel.update(
+          {
+            status: 3,
+            updatedAt: canceledAt,
+          },
+          { where: { orderId: order.id } }
+        );
+
+        await order.update({
+          canceledAt,
+          isActive: 0,
+          status: 5,
+        });
+
+        this.logger.log(`Orden ${order.id} cancelada correctamente.`);
+      }
+    }
+  }
+
   async create(createOrderDto: CreateOrderDto) {
     if (createOrderDto.items.length === 0) {
       throw new RpcException({
@@ -40,9 +83,10 @@ export class OrdersService implements OnModuleInit {
       });
     }
 
-    const petOwner = await HttpService.get(`pet-owner/${createOrderDto.userId}`);
+    const petOwner = await HttpService.get(`users/pet-owner/${createOrderDto.userId}`);
+    console.log('petOwner', petOwner.data);
 
-    if ( !petOwner.data ) {
+    if (!petOwner.data) {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
         message: "No se puede crear una orden para un usuario que no es dueño de mascota",
@@ -50,35 +94,48 @@ export class OrdersService implements OnModuleInit {
     } else {
       // Begin a transaction
       const transaction = await this.sequelize.transaction();
-  
+
       try {
+        console.log('DTO', createOrderDto);
+
         const itemIds = createOrderDto.items.map(item => item.itemId);
-  
+
         const items = await Promise.all(
           itemIds.map(async (itemId) => {
             const { data } = await HttpService.get(`products/${itemId}`);
             return data;
           })
         );
-  
+
+        console.log('ITEMS', items);
+
         const totalPrice = createOrderDto.items.reduce((acc, orderItem) => {
           const price = items.find(item => item.id === orderItem.itemId)?.finalPrice || 0;
           return acc + parseFloat(price) * orderItem.quantity;
         }, 0);
-  
-        const commission = await HttpService.post(`commissions/calculate-pet-owner-commission`, { amount: totalPrice });
+
+        console.log('TOTAL PRICE', totalPrice);
+
+        const commission = await HttpService.post(`commissions/calculate-pet-owner-commission`, { amount: totalPrice.toFixed(2) });
+        console.log('COMMISSION', commission.data);
 
         let totalAmount = 0;
-        if ( createOrderDto.homeDelivery ) {
+        if (createOrderDto.homeDelivery) {
           totalAmount = totalPrice + commission.data + envs.orderDeliveryCost;
         } else {
           totalAmount = totalPrice + commission.data;
         }
-  
+
+        console.log('TOTAL AMOUNT', totalAmount);
+
         const totalItems = createOrderDto.items.reduce((acc, orderItem) => acc + orderItem.quantity, 0);
 
-        const petOwnerAddress = await HttpService.get(`addresses/${createOrderDto.userId}`);
-        
+        let petOwnerAddress: any = {};
+        if (createOrderDto.homeDelivery) {
+          petOwnerAddress = await HttpService.get(`addresses/${createOrderDto.petOwnerAddressId}`);
+        }
+        console.log('PET OWNER ADDRESS', petOwnerAddress.data);
+
         // Create the order into the transaction
         const order = await this.orderModel.create(
           {
@@ -86,14 +143,15 @@ export class OrdersService implements OnModuleInit {
             userId: createOrderDto.userId,
             totalAmount: totalAmount,
             totalItems: totalItems,
-            homeDelivery: createOrderDto.homeDelivery,
-
+            homeDelivery: createOrderDto.homeDelivery || false,
+            petOwnerAddressId: createOrderDto.homeDelivery ? createOrderDto.petOwnerAddressId : null,
+            petOwnerAddress: createOrderDto.homeDelivery ? petOwnerAddress.data.addressName : null,
             petOwnerPhone: petOwner.data.phoneNumber,
             paymentMethod: createOrderDto.paymentMethod,
           },
           { transaction }
         );
-  
+
         const orderItems = createOrderDto.items.map(orderItem => ({
           orderItemId: UuidV4(),
           orderId: order.id,
@@ -102,12 +160,12 @@ export class OrdersService implements OnModuleInit {
           price: parseFloat(items.find(item => item.id === orderItem.itemId)?.finalPrice),
           entrepreneurId: items.find(item => item.id === orderItem.itemId)?.entrepreneurId,
         }));
-  
+
         // insert order items into the transaction
         await this.orderItemModel.bulkCreate(orderItems, { transaction });
-  
+
         await transaction.commit();
-  
+
         // return order;
         return {
           success: true,
@@ -115,7 +173,7 @@ export class OrdersService implements OnModuleInit {
         };
       } catch (error) {
         await transaction.rollback();
-  
+
         throw new RpcException({
           status: HttpStatus.BAD_REQUEST,
           message: "Error al crear la orden",
@@ -165,7 +223,7 @@ export class OrdersService implements OnModuleInit {
         where: { id: id, isActive: 1 },
         include: [this.orderItemModel]
       });
-
+      
       return order;
     } catch (error) {
       throw new RpcException({
@@ -178,7 +236,10 @@ export class OrdersService implements OnModuleInit {
   }
 
   async updatePaymentStatus(userId: string, id: string) {
+    const transaction = await this.sequelize.transaction();
+
     try {
+      let success = false;
       // Buscar y actualizar el estado de pago de la orden
       const order = await this.findOneUserOrder(id);
       let resp = {};
@@ -210,7 +271,7 @@ export class OrdersService implements OnModuleInit {
             status: 1,
             paidAt,
             updatedAt,
-          });
+          }, { transaction });
 
           const commissionValue = await HttpService.post(`commissions/calculate-pet-owner-commission`,
             {
@@ -221,9 +282,9 @@ export class OrdersService implements OnModuleInit {
           const income = await HttpService.post(`incomes`, {
             userId: userId,
             commissionValue: commissionValue.data,
-            category: 'PetOwner',	
+            category: 'PetOwner',
           });
-          if(income.status === 400){
+          if (income.status === 400) {
             resp = {
               success: false,
               message: "Error al crear el ingreso",
@@ -233,6 +294,8 @@ export class OrdersService implements OnModuleInit {
               success: false,
               message: "Error al crear el ingreso",
             });
+          } else {
+            success = true;
           }
 
           order.dataValues.orderItems.map(async (item) => {
@@ -242,8 +305,8 @@ export class OrdersService implements OnModuleInit {
               amount: parseFloat((item.dataValues.price * item.dataValues.quantity).toString()).toFixed(2),
               salesDate: item.dataValues.createdAt.toISOString()
             }
-            const response = await lastValueFrom( 
-              this.incomeClient.send('create_sale_by_product', {...sale})
+            const response = await lastValueFrom(
+              this.incomeClient.send('create_sale_by_product', { ...sale })
             ).catch((error) => {
               resp = {
                 success: false,
@@ -252,29 +315,40 @@ export class OrdersService implements OnModuleInit {
               console.log("error", error);
               throw new RpcException(
                 {
-                status: HttpStatus.BAD_REQUEST,
-                success: false,
-                message: "Error al crear la venta",
-              });
-            });
+                  status: HttpStatus.BAD_REQUEST,
+                  success: false,
+                  message: "Error al crear la venta",
+                });
+            })
+            if (response.success) {
+              success = true;
+            }
           });
 
-          resp = {
-            success: true,
-            message: "El pago de la orden se ha procesado exitosamente."
-          };
-
+          if (success) {
+            await transaction.commit();
+            resp = {
+              success: true,
+              message: "El pago de la orden se ha procesado exitosamente."
+            };
+          } else {
+            await transaction.rollback();
+            resp = {
+              success: false,
+              message: "Ocurrió un error en el procesamiento del pago.",
+            };
+          }
         }
       }
-
       return resp;
     } catch (error) {
-      throw new RpcException({
-        status: HttpStatus.BAD_REQUEST,
+      await transaction.rollback(); // Se revierte todo si hay un error
+      console.error("Error en la transacción:", error);
+
+      return {
         success: false,
-        message: "Error al procesar el pago de la orden",
-        // error: error.message
-      });
+        message: "Ocurrió un error en el procesamiento del pago.",
+      };
     }
   }
 
@@ -386,7 +460,7 @@ export class OrdersService implements OnModuleInit {
               status: 2,
               updatedAt,
             });
-            message = "La orden ha sido enviada a repartidor exitosamente.";
+            message = "La orden ha sido enviada al repartidor exitosamente.";
           }
         } else {
           if (order.orderItems.every(item => item.status === 2)) {
@@ -394,7 +468,7 @@ export class OrdersService implements OnModuleInit {
               status: 3,
               updatedAt,
             });
-            message = "La orden ha sido enviada a repartidor exitosamente.";
+            message = "Se han recogido todos los articulos de la orden exitosamente.";
           }
         }
 
@@ -407,13 +481,14 @@ export class OrdersService implements OnModuleInit {
       throw new RpcException({
         status: HttpStatus.BAD_REQUEST,
         success: false,
-        message: "Hubo un inconveniente en la solciitud, intente nuevamente.",
+        message: "Hubo un inconveniente en la solicitud, intente nuevamente.",
         // error: error.message
       });
     }
   }
 
   async handleOrderComplete(id: string) {
+    console.log('ID', id);
     const order = await this.findOneUserOrder(id);
 
     try {
@@ -621,7 +696,7 @@ export class OrdersService implements OnModuleInit {
             required: true, // Asegura que solo se incluyan órdenes con ítems de este emprendedor
           },
         ],
-        where: {  isPaid: true }
+        where: { isPaid: true }
       });
 
       return orders ? orders : { message: 'No se encontraron ordenes' };
@@ -638,39 +713,6 @@ export class OrdersService implements OnModuleInit {
   isReadyToShip(order: Order) {
     // return order.isActive && order.homeDelivery && order.status === 1 && order.isPaid;
     return order.isActive && order.homeDelivery && order.status === 1;
-  }
-
-  @Cron(CronExpression.EVERY_QUARTER)
-  async handleCancelOrder() {
-    this.logger.log('Ejecutando cancelación de órdenes no pagadas...');
-
-    const canceledAt = new Date();
-    canceledAt.setHours(canceledAt.getHours() - 5);
-
-    const ordersToCancel = await this.orderModel.findAll({
-      where: {
-        updatedAt: { [Op.lt]: new Date() },
-        isPaid: false,
-        status: 0,
-      },
-      include: [this.orderItemModel]
-    });
-
-    for (const order of ordersToCancel) {
-      await this.orderItemModel.update(
-        {
-          status: 3,
-          updatedAt: canceledAt,
-        },
-        { where: { orderId: order.id } }
-      );
-
-      await order.update({
-        canceledAt,
-        isActive: 0,
-        status: 5,
-      });
-    }
   }
 
 }

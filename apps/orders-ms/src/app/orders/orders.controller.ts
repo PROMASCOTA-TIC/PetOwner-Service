@@ -61,7 +61,7 @@ export class OrdersController {
   }
 
   @MessagePattern('complete_order')
-  async completeOrder(@Payload('orderId') orderId: string) {
-    return this.ordersService.handleOrderComplete(orderId);
+  async completeOrder(@Payload('id') id: string) {
+    return this.ordersService.handleOrderComplete(id);
   }
 }
