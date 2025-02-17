@@ -547,6 +547,7 @@ export class OrdersService implements OnModuleInit {
 
       const groupedByEntrepreneur = {};
 
+
       orders.forEach((order) => {
         order.orderItems.forEach((item) => {
           const { entrepreneurId } = item;
@@ -581,10 +582,8 @@ export class OrdersService implements OnModuleInit {
           });
         });
       });
-
       // Convertimos el objeto final en un array
       const result = Object.values(groupedByEntrepreneur);
-
       const data = await Promise.all(
         result.map(async (item: any) => {
           const entrepreneur = await HttpService.get(`users/entrepreneurs/${item.entrepreneurId}`);
@@ -599,8 +598,8 @@ export class OrdersService implements OnModuleInit {
           const aux = {
             orderId: item.orders[0]?.id || null, // Tomo el primer orderId disponible
             order: {
-              businessName: entrepreneur.data.businessName,
-              address: `${entrepreneur.data.address.callePrincipal} & ${entrepreneur.data.address.calleSecundaria}, ${entrepreneur.data.address.numeracion}, ${entrepreneur.data.address.referencia}`,
+              businessName: entrepreneur.data.nombreEmprendimiento,
+              address: `${entrepreneur.data.callePrincipal} & ${entrepreneur.data.calleSecundaria}, ${entrepreneur.data.numeracion}, ${entrepreneur.data.referencia}`,
               products,
             }
           };
@@ -642,7 +641,7 @@ export class OrdersService implements OnModuleInit {
             orderId: order.id,
             order: {
               petOwnerName: petOwner.data.name,
-              address: order.petOwnerAddress ? order.petOwnerAddress : "",
+              address: petOwner.data.addresses ? petOwner.data.addresses : "",
               products,
             }
           };
